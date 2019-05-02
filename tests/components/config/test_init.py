@@ -2,19 +2,11 @@
 import asyncio
 from unittest.mock import patch
 
-import pytest
-
 from homeassistant.const import EVENT_COMPONENT_LOADED
 from homeassistant.setup import async_setup_component, ATTR_COMPONENT
 from homeassistant.components import config
 
-from tests.common import mock_http_component, mock_coro, mock_component
-
-
-@pytest.fixture(autouse=True)
-def stub_http(hass):
-    """Stub the HTTP component."""
-    mock_http_component(hass)
+from tests.common import mock_coro, mock_component
 
 
 @asyncio.coroutine
@@ -25,7 +17,7 @@ def test_config_setup(hass, loop):
 
 
 @asyncio.coroutine
-def test_load_on_demand_already_loaded(hass, test_client):
+def test_load_on_demand_already_loaded(hass, aiohttp_client):
     """Test getting suites."""
     mock_component(hass, 'zwave')
 
@@ -37,12 +29,11 @@ def test_load_on_demand_already_loaded(hass, test_client):
         yield from async_setup_component(hass, 'config', {})
 
     yield from hass.async_block_till_done()
-    assert 'config.zwave' in hass.config.components
     assert stp.called
 
 
 @asyncio.coroutine
-def test_load_on_demand_on_load(hass, test_client):
+def test_load_on_demand_on_load(hass, aiohttp_client):
     """Test getting suites."""
     with patch.object(config, 'SECTIONS', []), \
             patch.object(config, 'ON_DEMAND', ['zwave']):
@@ -55,5 +46,4 @@ def test_load_on_demand_on_load(hass, test_client):
         hass.bus.async_fire(EVENT_COMPONENT_LOADED, {ATTR_COMPONENT: 'zwave'})
         yield from hass.async_block_till_done()
 
-    assert 'config.zwave' in hass.config.components
     assert stp.called

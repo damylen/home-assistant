@@ -1,10 +1,4 @@
-"""
-Offer state listening automation rules.
-
-For more details about this automation rule, please refer to the documentation
-at https://home-assistant.io/docs/automation/trigger/#state-trigger
-"""
-import asyncio
+"""Offer state listening automation rules."""
 import voluptuous as vol
 
 from homeassistant.core import callback
@@ -27,25 +21,22 @@ TRIGGER_SCHEMA = vol.All(vol.Schema({
 }), cv.key_dependency(CONF_FOR, CONF_TO))
 
 
-@asyncio.coroutine
-def async_trigger(hass, config, action):
+async def async_trigger(hass, config, action, automation_info):
     """Listen for state changes based on configuration."""
     entity_id = config.get(CONF_ENTITY_ID)
     from_state = config.get(CONF_FROM, MATCH_ALL)
     to_state = config.get(CONF_TO, MATCH_ALL)
     time_delta = config.get(CONF_FOR)
     match_all = (from_state == MATCH_ALL and to_state == MATCH_ALL)
-    async_remove_track_same = None
+    unsub_track_same = {}
 
     @callback
     def state_automation_listener(entity, from_s, to_s):
         """Listen for state changes and calls action."""
-        nonlocal async_remove_track_same
-
         @callback
         def call_action():
             """Call action with right context."""
-            hass.async_run_job(action, {
+            hass.async_run_job(action({
                 'trigger': {
                     'platform': 'state',
                     'entity_id': entity,
@@ -53,19 +44,21 @@ def async_trigger(hass, config, action):
                     'to_state': to_s,
                     'for': time_delta,
                 }
-            })
+            }, context=to_s.context))
 
         # Ignore changes to state attributes if from/to is in use
         if (not match_all and from_s is not None and to_s is not None and
-                from_s.last_changed == to_s.last_changed):
+                from_s.state == to_s.state):
             return
 
         if not time_delta:
             call_action()
             return
 
-        async_remove_track_same = async_track_same_state(
-            hass, to_s.state, time_delta, call_action, entity_ids=entity_id)
+        unsub_track_same[entity] = async_track_same_state(
+            hass, time_delta, call_action,
+            lambda _, _2, to_state: to_state.state == to_s.state,
+            entity_ids=entity_id)
 
     unsub = async_track_state_change(
         hass, entity_id, state_automation_listener, from_state, to_state)
@@ -74,7 +67,8 @@ def async_trigger(hass, config, action):
     def async_remove():
         """Remove state listeners async."""
         unsub()
-        if async_remove_track_same:
-            async_remove_track_same()  # pylint: disable=not-callable
+        for async_remove in unsub_track_same.values():
+            async_remove()
+        unsub_track_same.clear()
 
     return async_remove
